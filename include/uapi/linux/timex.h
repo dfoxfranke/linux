@@ -127,10 +127,11 @@ struct __kernel_timex {
 	long long stbcnt; /* stability limit exceeded (ro) */
 
 	int tai;		/* TAI offset (ro) */
+	unsigned int clkver;     /* Incremented when timekeeping is disrupted (ro) */
 
 	int  :32; int  :32; int  :32; int  :32;
 	int  :32; int  :32; int  :32; int  :32;
-	int  :32; int  :32; int  :32;
+	int  :32; int  :32;
 };
 
 /*
@@ -154,6 +155,7 @@ struct __kernel_timex {
 #endif
 
 #define ADJ_TOLERANCE	0x10000
+#define ADJ_CLKVER		0x20000
 
 /* NTP userland likes the MOD_ prefix better */
 #define MOD_OFFSET	ADJ_OFFSET
@@ -166,7 +168,7 @@ struct __kernel_timex {
 #define MOD_MICRO	ADJ_MICRO
 #define MOD_NANO	ADJ_NANO
 #define MOD_TOLERANCE	ADJ_TOLERANCE
-
+#define MOD_CLKVER	ADJ_CLKVER
 
 /*
  * Status codes (timex.status)

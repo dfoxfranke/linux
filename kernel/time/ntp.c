@@ -88,6 +88,9 @@ static s64			ntp_tick_adj;
 /* second value of the next pending leapsecond, or TIME64_MAX if no leap */
 static time64_t			ntp_next_leap_sec = TIME64_MAX;
 
+/* Incremented each time an event occurs which causes a discontinuity in timekeeping */
+static unsigned int			time_version = 0;
+
 #ifdef CONFIG_NTP_PPS
 
 /*
@@ -366,6 +369,8 @@ void ntp_clear(void)
 	ntp_next_leap_sec = TIME64_MAX;
 	/* Clear PPS state variables */
 	pps_clear();
+
+	time_version++;
 }
 
 
@@ -772,6 +777,7 @@ int __do_adjtimex(struct __kernel_timex *txc, const struct timespec64 *ts,
 		  s32 *time_tai, struct audit_ntp_data *ad)
 {
 	int result;
+	int version_matches = !(txc->modes & ADJ_CLKVER) || txc->clkver == time_version;
 
 	if (txc->modes & ADJ_ADJTIME) {
 		long save_adjust = time_adjust;
@@ -794,7 +800,7 @@ int __do_adjtimex(struct __kernel_timex *txc, const struct timespec64 *ts,
 			audit_ntp_set_old(ad, AUDIT_NTP_TAI,	*time_tai);
 			audit_ntp_set_old(ad, AUDIT_NTP_TICK,	tick_usec);
 
-			process_adjtimex_modes(txc, time_tai);
+			if(version_matches) process_adjtimex_modes(txc, time_tai);
 
 			audit_ntp_set_new(ad, AUDIT_NTP_OFFSET,	time_offset);
 			audit_ntp_set_new(ad, AUDIT_NTP_FREQ,	time_freq);
@@ -824,6 +830,7 @@ int __do_adjtimex(struct __kernel_timex *txc, const struct timespec64 *ts,
 	txc->tolerance	   = time_tolerance / PPM_SCALE;
 	txc->tick	   = tick_usec;
 	txc->tai	   = *time_tai;
+	txc->clkver    = time_version;
 
 	/* fill PPS status fields */
 	pps_fill_timex(txc);
@@ -850,6 +857,9 @@ int __do_adjtimex(struct __kernel_timex *txc, const struct timespec64 *ts,
 			result = TIME_WAIT;
 		}
 	}
+
+	if (!version_matches)
+		result = -EAGAIN;
 
 	return result;
 }
