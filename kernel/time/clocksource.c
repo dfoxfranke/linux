@@ -19,6 +19,7 @@
 
 #include "tick-internal.h"
 #include "timekeeping_internal.h"
+#include "ntp_internal.h"
 
 /**
  * clocks_calc_mult_shift - calculate mult/shift factors for scaled math of clocks
@@ -86,6 +87,8 @@ EXPORT_SYMBOL_GPL(clocks_calc_mult_shift);
  *	protects manipulations to curr_clocksource and the clocksource_list
  * override_name:
  *	Name of the user-specified clocksource.
+ * clear_ntp_on_disruption:
+ *  Whether to call ntp_clear() on guest resume & other clock discontinuities
  */
 static struct clocksource *curr_clocksource;
 static struct clocksource *suspend_clocksource;
@@ -94,6 +97,7 @@ static DEFINE_MUTEX(clocksource_mutex);
 static char override_name[CS_NAME_LEN];
 static int finished_booting;
 static u64 suspend_start;
+static unsigned int clear_ntp_on_disruption;
 
 /*
  * Threshold: 0.0312s, when doubled: 0.0625s.
@@ -849,6 +853,9 @@ void clocksource_resume(void)
 void clocksource_touch_watchdog(void)
 {
 	clocksource_resume_watchdog();
+	if (clear_ntp_on_disruption) {
+		ntp_clear();
+	}
 }
 
 /**
@@ -1407,10 +1414,28 @@ static ssize_t available_clocksource_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(available_clocksource);
 
+static ssize_t clear_ntp_on_disruption_store(struct device *dev,
+				    struct device_attribute *attr,
+				    const char *buf, size_t count)
+{
+	unsigned long val;
+	if (kstrtoul(buf, 0, &val) < 0)
+		return -EINVAL;
+	clear_ntp_on_disruption = !!val;
+	return count;
+}
+
+static ssize_t clear_ntp_on_disruption_show(struct device *dev,
+				   struct device_attribute *attr, char *buf)
+{
+	return sysfs_emit(buf, "%u\n", clear_ntp_on_disruption);
+}
+static DEVICE_ATTR_RW(clear_ntp_on_disruption);
 static struct attribute *clocksource_attrs[] = {
 	&dev_attr_current_clocksource.attr,
 	&dev_attr_unbind_clocksource.attr,
 	&dev_attr_available_clocksource.attr,
+	&dev_attr_clear_ntp_on_disruption.attr,
 	NULL
 };
 ATTRIBUTE_GROUPS(clocksource);
