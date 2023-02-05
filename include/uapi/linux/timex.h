@@ -153,6 +153,8 @@ struct __kernel_timex {
 #define ADJ_OFFSET_SS_READ	0xa001	/* read-only adjtime */
 #endif
 
+#define ADJ_TOLERANCE	0x10000
+
 /* NTP userland likes the MOD_ prefix better */
 #define MOD_OFFSET	ADJ_OFFSET
 #define MOD_FREQUENCY	ADJ_FREQUENCY
@@ -163,6 +165,7 @@ struct __kernel_timex {
 #define MOD_TAI	ADJ_TAI
 #define MOD_MICRO	ADJ_MICRO
 #define MOD_NANO	ADJ_NANO
+#define MOD_TOLERANCE	ADJ_TOLERANCE
 
 
 /*

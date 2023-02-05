@@ -65,11 +65,14 @@ static s64			time_offset;
 /* pll time constant:							*/
 static long			time_constant = 2;
 
-/* maximum error (usecs):						*/
-static long			time_maxerror = NTP_PHASE_LIMIT;
+/* maximum error (nsecs):						*/
+static s64			time_maxerror = NTP_PHASE_LIMIT;
 
-/* estimated error (usecs):						*/
-static long			time_esterror = NTP_PHASE_LIMIT;
+/* estimated error (nsecs):						*/
+static s64			time_esterror = NTP_PHASE_LIMIT;
+
+/* rate of increase of maximum error (scaled nsecs/sec): */
+static s64			time_tolerance = MAXFREQ_SCALED;
 
 /* frequency offset (scaled nsecs/secs):				*/
 static s64			time_freq;
@@ -455,7 +458,7 @@ int second_overflow(time64_t secs)
 
 
 	/* Bump the maxerror field */
-	time_maxerror += MAXFREQ / NSEC_PER_USEC;
+	time_maxerror += time_tolerance >> NTP_SCALE_SHIFT;
 	if (time_maxerror > NTP_PHASE_LIMIT) {
 		time_maxerror = NTP_PHASE_LIMIT;
 		time_status |= STA_UNSYNC;
@@ -727,10 +730,16 @@ static inline void process_adjtimex_modes(const struct __kernel_timex *txc,
 	}
 
 	if (txc->modes & ADJ_MAXERROR)
-		time_maxerror = txc->maxerror;
+		time_maxerror = txc->maxerror * NSEC_PER_USEC;
 
 	if (txc->modes & ADJ_ESTERROR)
-		time_esterror = txc->esterror;
+		time_esterror = txc->esterror * NSEC_PER_USEC;
+
+	if (txc->modes & ADJ_TOLERANCE) {
+		time_tolerance = txc->tolerance * PPM_SCALE;
+		time_tolerance = min(time_tolerance, MAXFREQ_SCALED);
+		time_tolerance = max(time_tolerance, (s64)0);
+	}
 
 	if (txc->modes & ADJ_TIMECONST) {
 		time_constant = txc->constant;
@@ -807,12 +816,12 @@ int __do_adjtimex(struct __kernel_timex *txc, const struct timespec64 *ts,
 
 	txc->freq	   = shift_right((time_freq >> PPM_SCALE_INV_SHIFT) *
 					 PPM_SCALE_INV, NTP_SCALE_SHIFT);
-	txc->maxerror	   = time_maxerror;
-	txc->esterror	   = time_esterror;
+	txc->maxerror	   = time_maxerror / NSEC_PER_USEC;
+	txc->esterror	   = time_esterror / NSEC_PER_USEC;
 	txc->status	   = time_status;
 	txc->constant	   = time_constant;
 	txc->precision	   = 1;
-	txc->tolerance	   = MAXFREQ_SCALED / PPM_SCALE;
+	txc->tolerance	   = time_tolerance / PPM_SCALE;
 	txc->tick	   = tick_usec;
 	txc->tai	   = *time_tai;
 
