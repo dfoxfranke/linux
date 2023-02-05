@@ -853,9 +853,7 @@ void clocksource_resume(void)
 void clocksource_touch_watchdog(void)
 {
 	clocksource_resume_watchdog();
-	if (clear_ntp_on_disruption) {
-		ntp_clear();
-	}
+	ntp_disrupt(clear_ntp_on_disruption, 1);
 }
 
 /**

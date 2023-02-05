@@ -2,6 +2,9 @@
 #ifndef _LINUX_NTP_INTERNAL_H
 #define _LINUX_NTP_INTERNAL_H
 
+#include <linux/audit.h>
+#include <linux/types.h>
+
 extern void ntp_init(void);
 extern void ntp_clear(void);
 /* Returns how long ticks are at present, in ns / 2^NTP_SCALE_SHIFT. */
@@ -18,5 +21,8 @@ extern void ntp_notify_cmos_timer(void);
 #else
 static inline void ntp_notify_cmos_timer(void) { }
 #endif
+
+extern void ntp_disrupt(bool clear, bool hardware_changed);
+extern void ntp_disrupt_notify(u32 clkversion, bool hardware_changed);
 
 #endif /* _LINUX_NTP_INTERNAL_H */

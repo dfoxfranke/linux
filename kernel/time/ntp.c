@@ -373,6 +373,19 @@ void ntp_clear(void)
 	time_version++;
 }
 
+/**
+ * ntp_disrupt - Handles notification of clock disruption, optionally clearing
+ * NTP state
+ */
+void ntp_disrupt(bool clear, bool hardware_changed) {
+	if (clear) {
+		ntp_clear();
+	} else {
+		time_version++;
+	}
+
+	ntp_disrupt_notify(time_version, hardware_changed);
+}
 
 u64 ntp_tick_length(void)
 {
