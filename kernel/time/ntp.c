@@ -6,6 +6,7 @@
  * Please see those files for relevant copyright info and historical
  * changelogs.
  */
+#include <linux/atomic.h>
 #include <linux/capability.h>
 #include <linux/clocksource.h>
 #include <linux/workqueue.h>
@@ -90,6 +91,28 @@ static time64_t			ntp_next_leap_sec = TIME64_MAX;
 
 /* Incremented each time an event occurs which causes a discontinuity in timekeeping */
 static unsigned int			time_version = 0;
+
+
+/* Flags indicating pending work to be done after a clock disruption.
+ *
+ * As an exception to the policy that everything in this module is covered by
+ * timekeeper_lock, this variable is managed through atomic ops instead,
+ * because ntp_disrupt() might get called from anywhere, we may be interrupt
+ * context or in process context, and we may or may not already be holding
+ * timekeeper_lock. So, that function will just atomically set the appropriate
+ * bits and then queue up work to be done later when we're back in a known
+ * state.
+ */
+static atomic_t			disruption_flags = ATOMIC_INIT(0);
+
+/* Increment time_version */
+#define DISRUPTION_FLAG_BUMP_VERSION 1
+/* Call ntp_clear */
+#define DISRUPTION_FLAG_CLEAR_STATE 2
+/* Call ntp_disrupt_notify */
+#define DISRUPTION_FLAG_SEND_NOTIFICATIONS 4
+/* Set hardware_changed flag in notifications */
+#define DISRUPTION_FLAG_HARDWARE_CHANGED 8
 
 #ifdef CONFIG_NTP_PPS
 
@@ -369,22 +392,74 @@ void ntp_clear(void)
 	ntp_next_leap_sec = TIME64_MAX;
 	/* Clear PPS state variables */
 	pps_clear();
+}
 
-	time_version++;
+static void disrupt_worker(struct work_struct* work)
+{
+	unsigned long lockflags;
+	int cur_flags;
+	unsigned int version;
+	(void)work;
+
+	raw_spin_lock_irqsave(&timekeeper_lock, lockflags);
+	cur_flags = atomic_xchg(&disruption_flags, 0);
+
+	if (cur_flags & DISRUPTION_FLAG_BUMP_VERSION) {
+		time_version++;
+	}
+	if (cur_flags & DISRUPTION_FLAG_CLEAR_STATE) {
+		ntp_clear();
+	}
+	version = time_version;
+
+	raw_spin_unlock_irqrestore(&timekeeper_lock, lockflags);
+
+	if (cur_flags & DISRUPTION_FLAG_SEND_NOTIFICATIONS) {
+		ntp_disrupt_notify(
+			version,
+			!!(cur_flags & DISRUPTION_FLAG_HARDWARE_CHANGED)
+		);
+	}
+}
+
+DECLARE_WORK(disrupt_workstruct, disrupt_worker);
+
+/* In an adjtimex call, all we want to update our local state so
+ * we can return the correct info. This isn't the time to send
+ * out netlink notificatinos.
+ */
+static void handle_disrupt_for_adjtimex(void)
+{
+	int cur_flags = atomic_fetch_and(
+		~(DISRUPTION_FLAG_BUMP_VERSION | DISRUPTION_FLAG_CLEAR_STATE),
+		&disruption_flags);
+	if (cur_flags & DISRUPTION_FLAG_BUMP_VERSION) {
+		time_version++;
+	}
+	if (cur_flags & DISRUPTION_FLAG_CLEAR_STATE) {
+		ntp_clear();
+	}
 }
 
 /**
- * ntp_disrupt - Handles notification of clock disruption, optionally clearing
- * NTP state
+ * ntp_disrupt - Marks the system clock as disrupted and schedules
+ * disruption notifications.
  */
-void ntp_disrupt(bool clear, bool hardware_changed) {
-	if (clear) {
-		ntp_clear();
-	} else {
-		time_version++;
+void ntp_disrupt(bool clear, bool hardware_changed)
+{
+	int new_flags =
+		  DISRUPTION_FLAG_BUMP_VERSION
+		| DISRUPTION_FLAG_SEND_NOTIFICATIONS;
+
+	if(clear) {
+		new_flags |= DISRUPTION_FLAG_CLEAR_STATE;
+	}
+	if(hardware_changed) {
+		new_flags |= DISRUPTION_FLAG_HARDWARE_CHANGED;
 	}
 
-	ntp_disrupt_notify(time_version, hardware_changed);
+	atomic_or(new_flags, &disruption_flags);
+	schedule_work(&disrupt_workstruct);
 }
 
 u64 ntp_tick_length(void)
@@ -790,7 +865,10 @@ int __do_adjtimex(struct __kernel_timex *txc, const struct timespec64 *ts,
 		  s32 *time_tai, struct audit_ntp_data *ad)
 {
 	int result;
-	int version_matches = !(txc->modes & ADJ_CLKVER) || txc->clkver == time_version;
+	int version_matches;
+
+	handle_disrupt_for_adjtimex();
+	version_matches = !(txc->modes & ADJ_CLKVER) || txc->clkver == time_version;
 
 	if (txc->modes & ADJ_ADJTIME) {
 		long save_adjust = time_adjust;
