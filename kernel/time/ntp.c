@@ -867,6 +867,7 @@ int __do_adjtimex(struct __kernel_timex *txc, const struct timespec64 *ts,
 	int result;
 	int version_matches;
 
+	clocksource_poll_disruptors();
 	handle_disrupt_for_adjtimex();
 	version_matches = !(txc->modes & ADJ_CLKVER) || txc->clkver == time_version;
 

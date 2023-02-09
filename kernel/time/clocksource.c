@@ -89,6 +89,9 @@ EXPORT_SYMBOL_GPL(clocks_calc_mult_shift);
  *	Name of the user-specified clocksource.
  * clear_ntp_on_disruption:
  *  Whether to call ntp_clear() on guest resume & other clock discontinuities
+ * disruptors:
+ *  List of functions to poll to check for clock disruptions. Protected by
+ *  the timekeeper lock.
  */
 static struct clocksource *curr_clocksource;
 static struct clocksource *suspend_clocksource;
@@ -98,6 +101,40 @@ static char override_name[CS_NAME_LEN];
 static int finished_booting;
 static u64 suspend_start;
 static unsigned int clear_ntp_on_disruption;
+static LIST_HEAD(disruptors);
+
+void clocksource_register_disruptor(
+	struct clocksource_disruptor *disruptor) 
+{
+	unsigned long flags;
+	INIT_LIST_HEAD(&disruptor->dr_list);
+	raw_spin_lock_irqsave(&timekeeper_lock, flags);
+	list_add(&disruptor->dr_list, &disruptors);
+	raw_spin_unlock_irqrestore(&timekeeper_lock, flags);
+}
+
+void clocksource_unregister_disruptor(
+	struct clocksource_disruptor *disruptor) 
+{
+	unsigned long flags;
+	raw_spin_lock_irqsave(&timekeeper_lock, flags);
+	list_del(&disruptor->dr_list);
+	raw_spin_unlock_irqrestore(&timekeeper_lock, flags);
+}
+
+void clocksource_poll_disruptors(void)
+{
+	struct clocksource_disruptor *cur;
+	
+	list_for_each_entry(cur, &disruptors, dr_list) {
+		cur->poll_disrupt();
+	}
+}
+
+void clocksource_disrupt(bool hardware_changed) {
+	clocksource_touch_watchdog();
+	ntp_disrupt(clear_ntp_on_disruption, hardware_changed);
+}
 
 /*
  * Threshold: 0.0312s, when doubled: 0.0625s.
@@ -853,7 +890,6 @@ void clocksource_resume(void)
 void clocksource_touch_watchdog(void)
 {
 	clocksource_resume_watchdog();
-	ntp_disrupt(clear_ntp_on_disruption, 1);
 }
 
 /**

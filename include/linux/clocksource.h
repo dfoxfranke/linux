@@ -129,6 +129,16 @@ struct clocksource {
 	struct module		*owner;
 };
 
+struct clocksource_disruptor {
+	void (*poll_disrupt)(void);
+	struct list_head dr_list;
+};
+
+void clocksource_register_disruptor(struct clocksource_disruptor *disruptor);
+void clocksource_unregister_disruptor(struct clocksource_disruptor *disruptor);
+void clocksource_poll_disruptors(void);
+void clocksource_disrupt(bool hardware_changed);
+
 /*
  * Clock source flags bits::
  */
