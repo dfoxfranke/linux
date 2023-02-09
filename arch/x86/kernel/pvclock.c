@@ -64,6 +64,21 @@ u8 pvclock_read_flags(struct pvclock_vcpu_time_info *src)
 	return flags & valid_flags;
 }
 
+bool pvclock_check_and_clear_guest_paused(struct pvclock_vcpu_time_info *src)
+{
+	union {
+		struct pvclock_vcpu_time_info *ti;
+		long *l;
+	} usrc;
+
+	usrc.ti = src;
+	return test_and_clear_bit(
+		offsetof(struct pvclock_vcpu_time_info, flags) * 8 +
+			const_ilog2(PVCLOCK_GUEST_STOPPED),
+		usrc.l
+	);
+}
+
 static __always_inline
 u64 __pvclock_clocksource_read(struct pvclock_vcpu_time_info *src, bool dowd)
 {
@@ -75,11 +90,10 @@ u64 __pvclock_clocksource_read(struct pvclock_vcpu_time_info *src, bool dowd)
 	do {
 		version = pvclock_read_begin(src);
 		ret = __pvclock_read_cycles(src, rdtsc_ordered());
-		flags = src->flags;
+		flags = READ_ONCE(src->flags);
 	} while (pvclock_read_retry(src, version));
 
-	if (dowd && unlikely((flags & PVCLOCK_GUEST_STOPPED) != 0)) {
-		src->flags &= ~PVCLOCK_GUEST_STOPPED;
+	if (dowd && unlikely(pvclock_check_and_clear_guest_paused(src) != 0)) {
 		pvclock_touch_watchdogs();
 	}
 

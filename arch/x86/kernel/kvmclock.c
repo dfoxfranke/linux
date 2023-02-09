@@ -140,8 +140,7 @@ bool kvm_check_and_clear_guest_paused(void)
 	if (!src)
 		return ret;
 
-	if ((src->pvti.flags & PVCLOCK_GUEST_STOPPED) != 0) {
-		src->pvti.flags &= ~PVCLOCK_GUEST_STOPPED;
+	if (pvclock_check_and_clear_guest_paused(&src->pvti) != 0) {
 		pvclock_touch_watchdogs();
 		ret = true;
 	}
